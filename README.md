@@ -9,7 +9,7 @@ This is the **starter repository** for Project 1. Two repositories matter:
 | `delveccj/EAS510_Assignment1_starter` (this repo) | Your **code** lives here. You will fork it, work in your fork, and push your final submission here. |
 | `delveccj/EAS510_Assignment1` | The **dataset** (read-only). Clone it for the images; never commit it to your fork. |
 
-## Setup on your Codio box
+## Setup on your Codio box.
 
 ```bash
 # 1. Fork this repo on GitHub, then in your box:
