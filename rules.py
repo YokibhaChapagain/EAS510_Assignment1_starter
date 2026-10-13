@@ -44,10 +44,13 @@ def _hist(path):
     img = _arr(path)
     if img is None:
         return None
-    hists = [cv2.calcHist([img], [i], None, [32], [0, 256]) for i in range(3)]
-    hist_all = np.concatenate(hists).ravel().astype(np.float32)
-    cv2.normalize(hist_all, hist_all)
-    return hist_all
+    hists = []
+
+    for i in range(3):
+        hist = cv2.calcHist([img], [i], None, [32], [0, 256])
+        cv2.normalize(hist, hist)
+        hists.append(hist)
+    return hists
 
 
 def _downscale(img, max_dim=512):
@@ -75,20 +78,61 @@ def _size(path):
     except Exception:
         return None
 
+#Detect JPEG/PNG from the file's actual header bytes
+@lru_cache(maxsize=256)
+def _file_type(path):
+  try:
+    with open(path, "rb") as f:
+      header = f.read(8)
+
+    if header.startswith(b"\xff\xd8"):
+      return "jpeg"
+    
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+      return "png"
+
+    return "other"
+
+  except Exception:
+    return "unknown"
 
 def rule1_metadata(target, input_path):
     """File size + dimensions. Compression and crops leave size fingerprints."""
     out = {"rule": 1, "name": "Metadata", "fired": False, "score": 0,
            "out_of": 30, "note": "Size ratio 0.00", "metric": 0.0}
     try:
+        #File size similarity
         src_size = os.path.getsize(target["path"])
         in_size = os.path.getsize(input_path)
+        size_ratio = min(src_size, in_size) / max(src_size, in_size)
+
+        #Dimension similarity
         src_w, src_h = _size(target["path"]) or (0, 0)
         in_w, in_h = _size(input_path) or (0, 0)
-        size_ratio = min(src_size, in_size) / max(src_size, in_size)
-        area_kept = (in_w * in_h) / max(1, src_w * src_h)
-        metric = 0.5 * size_ratio + 0.5 * min(1.0, area_kept)
-        out["metric"] = round(max(0.0, min(1.0, metric)), 3)
+        src_area = max(1,  src_w * src_h )
+        in_area = max(1,in_w * in_h)
+        area_ratio = min(src_area, in_area)/ max(src_area, in_area)
+
+        #Actual file type
+        src_type = _file_type(target["path"])
+        in_type = _file_type(input_path)
+        same_dimensions = (
+          src_w == in_w and
+          src_h == in_h and
+          src_w > 0 and
+          src_h > 0
+        )
+        format_changed = (
+          src_type in {"jpeg", "png"} and
+          in_type in {"jpeg", "png"} and
+          src_type != in_type
+        )
+        metric = 0.5 * size_ratio + 0.5 * area_ratio
+
+        if format_changed and same_dimensions:
+          metric += 0.10
+        metric = max(0.0, min(1.0,metric))
+        out["metric"] = round(metric, 3)
         out["note"] = f"Size ratio {out['metric']:.2f}"
         if out["metric"] >= 0.6:
             out["fired"] = True
@@ -106,8 +150,19 @@ def rule2_histogram(target, input_path):
         hs, hi = _hist(target["path"]), _hist(input_path)
         if hs is None or hi is None:
             return out
-        corr = float(cv2.compareHist(hs, hi, cv2.HISTCMP_CORREL))
-        out["metric"] = round(max(0.0, min(1.0, corr)), 3)
+
+        correlations = []
+        for src_hist, in_hist in zip(hs, hi):
+            corr = cv2.compareHist(
+              src_hist, 
+              in_hist,
+              cv2.HISTCMP_CORREL
+            )
+            correlations.append(corr)
+
+        #Average similarities
+        metric = float(np.mean(correlations))
+        out["metric"] = round(max(0.0, min(1.0, metric)), 3)
         out["note"] = f"Correlation {out['metric']:.2f}"
         if out["metric"] >= 0.5:
             out["fired"] = True
@@ -127,13 +182,50 @@ def rule3_template(target, input_path):
     out = {"rule": 3, "name": "Template", "fired": False, "score": 0,
            "out_of": 40, "note": "Match score 0.00", "metric": 0.0}
     try:
-        src_g = _gray(target["path"])
-        nd_g = _gray(input_path)
-        if src_g is None or nd_g is None:
+        src = _arr(target["path"])
+        nd = _arr(input_path)
+        
+        if src is None or nd is None:
             return out
-        if (src_g.shape[0] < nd_g.shape[0]) or (src_g.shape[1] < nd_g.shape[1]):
-            nd_g = cv2.resize(nd_g, (min(nd_g.shape[1], src_g.shape[1]),
-                                     min(nd_g.shape[0], src_g.shape[0])))
+        
+        #Convert both to grayscale
+        src_g = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+        nd_g = cv2.cvtColor(nd, cv2.COLOR_BGR2GRAY)
+
+        src_h, src_w =  src_g.shape[:2]
+        max_dim = 512
+
+        #Downscale both using same scale factor
+        if max(src_h, src_w) > max_dim:
+          scale = max_dim / max(src_h, src_w)
+
+          #Resize original
+          new_src_w = int(src_w * scale)
+          new_src_h = int(src_h * scale)
+
+          src_g = cv2.resize(
+            src_g,
+            (new_src_w, new_src_h)
+          )
+
+          #Resize suspect with same scale
+          nd_h, nd_w = nd_g.shape[:2]
+
+          new_nd_w = int(nd_w * scale)
+          new_nd_h = int(nd_h * scale)
+
+          nd_g = cv2.resize(
+            nd_g,
+            (new_nd_w, new_nd_h)
+          )
+        
+        if (
+            nd_g.shape[0] > src_g.shape[0]
+            or nd_g.shape[1] > src_g.shape[1]
+        ):
+            return out
+
+       #Template matching
         res = cv2.matchTemplate(src_g, nd_g, cv2.TM_CCOEFF_NORMED)
         metric = float(res.max())
         out["metric"] = round(max(0.0, min(1.0, metric)), 3)
