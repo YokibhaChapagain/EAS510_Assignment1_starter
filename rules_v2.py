@@ -16,36 +16,23 @@ import rules
 
 #: Import the original rules and append your new one.
 RULES = (
-    "rule1_v2",
-    "rule2_v2",
-    "rule3_template",
+    "rule1_metadata",
+    "rule2_histogram",
+    "rule3_v2",
     "rule4_multiscale"
 )
 
-def rule1_v2(target, input_path):
-    """Same Rule 1 logic, but weight is out of 25."""
+def rule3_v2(target, input_path):
+    """Same Rule 3 logic, but weight is out of 30."""
 
-    out = rules.rule1_metadata(target, input_path)
-    out["out_of"] = 25
+    out = rules.rule3_template(target, input_path)
+    out["out_of"] = 30
     if out["fired"]:
-        out["score"] = int(round(25 * out["metric"]))
+        out["score"] = int(round(30 * out["metric"]))
     else:
         out["score"] = 0
 
     return out
-
-def rule2_v2(target, input_path):
-    """Same Rule 2 logic, but weight is out of 25."""
-
-    out = rules.rule2_histogram(target, input_path)
-    out["out_of"] = 25
-    if out["fired"]:
-        out["score"] = int(round(25 * out["metric"]))
-    else:
-        out["score"] = 0
-
-    return out
-
 
 def rule4_multiscale(target, input_path):
     """Try template matching at multiple scales to handle resized suspects"""
@@ -95,7 +82,7 @@ def rule4_multiscale(target, input_path):
         )
 
       #Different suspect sizes
-      scales = [0.75, 0.85, 1.0, 1.15, 1.33]
+      scales = [0.88, 1.0, 1.18, 1.33]
       best_metric = 0.0
       best_scale = None
 
