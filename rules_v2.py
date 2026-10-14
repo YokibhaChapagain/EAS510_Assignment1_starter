@@ -82,7 +82,7 @@ def rule4_multiscale(target, input_path):
         )
 
       #Different suspect sizes
-      scales = [0.88, 1.0, 1.18, 1.33]
+      scales = [0.75, 0.85, 1.0, 1.15, 1.33]
       best_metric = 0.0
       best_scale = None
 
