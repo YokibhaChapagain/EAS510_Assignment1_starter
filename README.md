@@ -85,3 +85,27 @@ restart never touches GitHub.
 ## License
 
 Apache 2.0. See `LICENSE`.
+
+## Observed weakness in V1: what failed and why
+V1 performed well on the easier set, matching 57 out of 60 modified images while keeping all 15 random images rejected.
+On the hard set, only 47 of 60 images were matched. A repeated pattern appeared in resized and crop-plus-resize cases. 
+In 10 of those 13 rejected hard cases, Rule 3 contributed 0 points,while Rule 1 and 2 often still provided useful evidence. 
+This shows that the main V1 weakness was template matching under scale changes, since cv2.matchTemplate() is sensitive to 
+changes in the size of the suspect image.
+
+## Design decision for V2: what Rule 4 is and why you chose it
+Rule 4 uses multi-scale template matching by testing the suspect image at several different sizes and keeping the best match score.
+This was chosen because many of V1 hard-case failures involved resizing or crop-plus-resize transformations, where normal template
+matching often gave zero points. The V2 weighting was changed to 30/30/30/10 so that 10 points were moved from Rule 3, which showed 
+repeated weakness, to the new scale-aware Rule 4.
+
+## Effect of the change: accuracy before/after on easy vs hard
+The easy-set performance stayed the same at 57/60 matched, while the hard-set result improved from 47/60 in V1 to 49/60 in V2. 
+Rule 4 fired on 39 of the 60 hard images, showing that it was contributing evidence on many of the harder transformations. 
+The random set still had 0 false accepts out of 15, so the added scale flexibility did not reduce rejection of unrelated images. 
+
+## Trade-offs: what new costs or risks did Rule 4 introduce
+Multi-scale matching requires several template comparisons instead of one, so it adds computation and introduces new choices
+such as which scales to test and what threshold to use. Testing a denser set of scales actually reduced the hard-set result 
+from 49 to 48 matches, so the simpler scale set was kept. V2 still rejected 11 hard cases, especially crop-plus-resize combinations,
+and testing more scales could increase the chance of accidental matches, although the random set still produced zero false accepts.
